@@ -5,15 +5,14 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import io
 import traceback
+import gc
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 限制50MB
-app.config['UPLOAD_FOLDER'] = '/tmp/uploads'  # 使用临时目录
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 限制10MB（减少到10MB）
+app.config['UPLOAD_FOLDER'] = '/tmp/uploads'
 
-# 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# ===== 保留你原来的业务逻辑代码 =====
 STUDENT_COLUMN_MAP = {
     '学号': '学号',
     '姓名': '姓名',
@@ -46,21 +45,35 @@ def find_price_column(df):
     return None
 
 def process_data(student_file, book_file, college_name):
-    """处理数据的核心函数"""
     try:
-        # 加载数据
-        df_student_raw = pd.read_excel(student_file)
-        df_student = map_columns(df_student_raw, STUDENT_COLUMN_MAP)
+        # 使用较小的chunksize和只读必要的列来减少内存
+        print("开始读取学生表...")
+        df_student_raw = pd.read_excel(
+            student_file,
+            usecols=lambda x: x in STUDENT_COLUMN_MAP.values() or x in ['学号', '姓名', '学院', '专业', '行政班', 'ISBN'],
+            engine='openpyxl'
+        )
         
-        df_book_raw = pd.read_excel(book_file)
+        df_student = map_columns(df_student_raw, STUDENT_COLUMN_MAP)
+        del df_student_raw
+        gc.collect()
+        
+        print("开始读取教材表...")
+        # 先只读ISBN列和可能的价格列
+        df_book_raw = pd.read_excel(book_file, engine='openpyxl', nrows=None)
+        
         df_book_with_isbn = map_columns(df_book_raw, {'ISBN': BOOK_COLUMN_MAP['ISBN']})
         
-        # 查找价格列
         price_col_name = find_price_column(df_book_with_isbn)
         if not price_col_name:
             raise KeyError("未找到价格列（需包含'折后价'或'折'字）")
         
-        df_book = df_book_with_isbn.rename(columns={price_col_name: '折后价'})
+        # 只保留需要的列
+        df_book = df_book_with_isbn[['ISBN', price_col_name]].copy()
+        df_book.rename(columns={price_col_name: '折后价'}, inplace=True)
+        
+        del df_book_raw, df_book_with_isbn
+        gc.collect()
         
         # 数据清洗
         df_student.dropna(subset=['学号', 'ISBN'], how='all', inplace=True)
@@ -71,14 +84,19 @@ def process_data(student_file, book_file, college_name):
         df_book['ISBN'] = df_book['ISBN'].astype(str).str.strip()
         df_book['折后价'] = pd.to_numeric(df_book['折后价'], errors='coerce')
         df_book = df_book[df_book['折后价'].notna()]
-        df_student = df_student[df_student['ISBN'].isin(df_book['ISBN'])]
+        
+        # 只保留有价格的学生记录
+        df_student = df_student[df_student['ISBN'].isin(df_book['ISBN'])].copy()
         
         # 价格映射
         price_dict = dict(zip(df_book['ISBN'], df_book['折后价']))
         df_student['单册价格'] = df_student['ISBN'].map(price_dict)
         df_student = df_student[df_student['单册价格'].notna()]
         
-        # 学院筛选（模糊搜索）
+        del df_book, price_dict
+        gc.collect()
+        
+        # 学院筛选
         df_filtered = df_student[df_student['学院'].str.contains(college_name, na=False)].copy()
         
         if df_filtered.empty:
@@ -94,7 +112,7 @@ def process_data(student_file, book_file, college_name):
         )['单册价格'].sum()
         df_result.rename(columns={'单册价格': '教材采购总费用'}, inplace=True)
         
-        df_detail = df_filtered.copy()
+        df_detail = df_filtered[['学号', '姓名', '学院', '专业', '行政班', 'ISBN', '单册价格']].copy()
         df_detail['个人总计'] = df_detail.groupby('学号')['单册价格'].transform('sum')
         
         summary = {
@@ -102,10 +120,15 @@ def process_data(student_file, book_file, college_name):
             '目标学院关键词': college_name,
             '匹配到的学院': ', '.join(unique_colleges),
             '价格列来源': price_col_name,
-            '总学生数': len(df_result),
+            '总学生数': int(len(df_result)),
             '采购总费用': float(df_result['教材采购总费用'].sum()),
             '人均费用': float(df_result['教材采购总费用'].mean())
         }
+        
+        del df_student, df_filtered
+        gc.collect()
+        
+        print("数据处理完成")
         
         return {
             "summary": summary,
@@ -115,6 +138,8 @@ def process_data(student_file, book_file, college_name):
         }
         
     except Exception as e:
+        error_msg = traceback.format_exc()
+        print(f"错误: {error_msg}")
         return {
             "success": False,
             "error": str(e)
@@ -126,13 +151,14 @@ def index():
 
 @app.route('/health')
 def health():
-    """健康检查接口"""
     return jsonify({"status": "ok", "message": "Server is running"})
 
 @app.route('/process', methods=['POST'])
 def process():
+    student_path = None
+    book_path = None
+    
     try:
-        # 检查文件
         if 'student_file' not in request.files or 'book_file' not in request.files:
             return jsonify({"success": False, "error": "请上传两个Excel文件"})
         
@@ -146,10 +172,21 @@ def process():
         if student_file.filename == '' or book_file.filename == '':
             return jsonify({"success": False, "error": "请选择有效的文件"})
         
-        # 检查文件类型
         if not (student_file.filename.endswith(('.xlsx', '.xls')) and 
                 book_file.filename.endswith(('.xlsx', '.xls'))):
             return jsonify({"success": False, "error": "请上传Excel文件(.xlsx或.xls格式)"})
+        
+        # 检查文件大小
+        student_file.seek(0, os.SEEK_END)
+        student_size = student_file.tell()
+        student_file.seek(0)
+        
+        book_file.seek(0, os.SEEK_END)
+        book_size = book_file.tell()
+        book_file.seek(0)
+        
+        if student_size > 10 * 1024 * 1024 or book_size > 10 * 1024 * 1024:
+            return jsonify({"success": False, "error": "文件过大，单个文件请不要超过10MB"})
         
         # 保存文件
         student_path = os.path.join(app.config['UPLOAD_FOLDER'], 
@@ -160,11 +197,13 @@ def process():
         student_file.save(student_path)
         book_file.save(book_path)
         
+        print(f"文件已保存，开始处理...")
+        
         # 处理数据
         result = process_data(student_path, book_path, college_name)
         
         if result['success']:
-            # 生成Excel文件
+            # 生成Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 result["result_df"].to_excel(writer, sheet_name='学院汇总', index=False)
@@ -173,19 +212,23 @@ def process():
             
             output.seek(0)
             
-            # 保存到临时文件
-            output_filename = f"教材费用统计_{college_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            # 保存结果
+            output_filename = f"统计_{college_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
             
             with open(output_path, 'wb') as f:
                 f.write(output.getvalue())
             
-            # 清理上传的文件
+            # 立即删除输入文件
             try:
                 os.remove(student_path)
                 os.remove(book_path)
+                student_path = None
+                book_path = None
             except:
                 pass
+            
+            gc.collect()
             
             return jsonify({
                 "success": True,
@@ -197,25 +240,36 @@ def process():
         
     except Exception as e:
         error_detail = traceback.format_exc()
-        print(f"Error: {error_detail}")  # 服务器日志
+        print(f"异常: {error_detail}")
         return jsonify({"success": False, "error": f"处理出错: {str(e)}"})
     finally:
-        # 确保清理临时文件
+        # 清理临时文件
         try:
-            if 'student_path' in locals() and os.path.exists(student_path):
+            if student_path and os.path.exists(student_path):
                 os.remove(student_path)
-            if 'book_path' in locals() and os.path.exists(book_path):
+            if book_path and os.path.exists(book_path):
                 os.remove(book_path)
         except:
             pass
+        gc.collect()
 
 @app.route('/download/<filename>')
 def download(filename):
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    return send_file(filepath, as_attachment=True, download_name=filename)
+    
+    if not os.path.exists(filepath):
+        return jsonify({"error": "文件不存在"}), 404
+    
+    try:
+        return send_file(filepath, as_attachment=True, download_name=filename)
+    finally:
+        # 下载后删除文件
+        try:
+            os.remove(filepath)
+        except:
+            pass
 
 if __name__ == '__main__':
-    # 本地开发模式
     import os
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
