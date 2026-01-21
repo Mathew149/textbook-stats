@@ -4,10 +4,11 @@ import os
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import io
+import traceback
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 限制50MB
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['UPLOAD_FOLDER'] = '/tmp/uploads'  # 使用临时目录
 
 # 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -123,6 +124,11 @@ def process_data(student_file, book_file, college_name):
 def index():
     return render_template('index.html')
 
+@app.route('/health')
+def health():
+    """健康检查接口"""
+    return jsonify({"status": "ok", "message": "Server is running"})
+
 @app.route('/process', methods=['POST'])
 def process():
     try:
@@ -139,6 +145,11 @@ def process():
         
         if student_file.filename == '' or book_file.filename == '':
             return jsonify({"success": False, "error": "请选择有效的文件"})
+        
+        # 检查文件类型
+        if not (student_file.filename.endswith(('.xlsx', '.xls')) and 
+                book_file.filename.endswith(('.xlsx', '.xls'))):
+            return jsonify({"success": False, "error": "请上传Excel文件(.xlsx或.xls格式)"})
         
         # 保存文件
         student_path = os.path.join(app.config['UPLOAD_FOLDER'], 
@@ -170,8 +181,11 @@ def process():
                 f.write(output.getvalue())
             
             # 清理上传的文件
-            os.remove(student_path)
-            os.remove(book_path)
+            try:
+                os.remove(student_path)
+                os.remove(book_path)
+            except:
+                pass
             
             return jsonify({
                 "success": True,
@@ -182,7 +196,18 @@ def process():
             return jsonify(result)
         
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        error_detail = traceback.format_exc()
+        print(f"Error: {error_detail}")  # 服务器日志
+        return jsonify({"success": False, "error": f"处理出错: {str(e)}"})
+    finally:
+        # 确保清理临时文件
+        try:
+            if 'student_path' in locals() and os.path.exists(student_path):
+                os.remove(student_path)
+            if 'book_path' in locals() and os.path.exists(book_path):
+                os.remove(book_path)
+        except:
+            pass
 
 @app.route('/download/<filename>')
 def download(filename):
