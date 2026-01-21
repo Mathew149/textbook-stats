@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生教材采购费用统计工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        input[type="text"],
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        input[type="text"]:focus,
+        input[type="file"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .file-label {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: #f5f5f5;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .file-label:hover {
+            background: #e8e8e8;
+            border-color: #667eea;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .file-name {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+        }
+        
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress {
+            display: none;
+            margin: 20px 0;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s;
+            animation: progress-animation 1.5s infinite;
+        }
+        
+        @keyframes progress-animation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .result {
+            display: none;
+            margin-top: 25px;
+            padding: 20px;
+            background: #f0f7ff;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .result h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .result-label {
+            color: #666;
+        }
+        
+        .result-value {
+            color: #333;
+            font-weight: bold;
+        }
+        
+        .download-btn {
+            margin-top: 15px;
+            background: #28a745;
+        }
+        
+        .download-btn:hover {
+            background: #218838;
+        }
+        
+        .error {
+            display: none;
+            margin-top: 15px;
+            padding: 15px;
+            background: #ffe0e0;
+            color: #c00;
+            border-radius: 10px;
+            border-left: 4px solid #c00;
+        }
+        
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            background: #fff3cd;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 学生教材采购费用统计工具</h1>
+        
+        <form id="uploadForm">
+            <div class="form-group">
+                <label>1️⃣ 学生教材订购明细表</label>
+                <label for="studentFile" class="file-label">
+                    📄 点击选择Excel文件
+                </label>
+                <input type="file" id="studentFile" name="student_file" accept=".xlsx,.xls" required>
+                <div class="file-name" id="studentFileName">未选择文件</div>
+            </div>
+            
+            <div class="form-group">
+                <label>2️⃣ 已到教材明细表</label>
+                <label for="bookFile" class="file-label">
+                    📄 点击选择Excel文件
+                </label>
+                <input type="file" id="bookFile" name="book_file" accept=".xlsx,.xls" required>
+                <div class="file-name" id="bookFileName">未选择文件</div>
+            </div>
+            
+            <div class="form-group">
+                <label>3️⃣ 目标学院关键词（支持模糊搜索）</label>
+                <input type="text" id="collegeName" name="college_name" 
+                       placeholder="例如：计算机、机电、软件" required>
+            </div>
+            
+            <button type="submit" id="submitBtn">🚀 开始统计</button>
+        </form>
+        
+        <div class="progress" id="progress">
+            <div class="progress-bar"></div>
+        </div>
+        
+        <div class="status" id="status"></div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result" id="result">
+            <h3>✅ 统计结果</h3>
+            <div class="result-item">
+                <span class="result-label">统计时间</span>
+                <span class="result-value" id="resTime"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">匹配学院</span>
+                <span class="result-value" id="resCollege"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">总学生数</span>
+                <span class="result-value" id="resStudents"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">采购总费用</span>
+                <span class="result-value" id="resTotalCost"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">人均费用</span>
+                <span class="result-value" id="resAvgCost"></span>
+            </div>
+            <button class="download-btn" id="downloadBtn">💾 下载Excel统计报表</button>
+        </div>
+    </div>
+    
+    <script>
+        let downloadUrl = '';
+        
+        // 文件选择显示
+        document.getElementById('studentFile').addEventListener('change', function(e) {
+            document.getElementById('studentFileName').textContent = 
+                e.target.files[0] ? e.target.files[0].name : '未选择文件';
+        });
+        
+        document.getElementById('bookFile').addEventListener('change', function(e) {
+            document.getElementById('bookFileName').textContent = 
+                e.target.files[0] ? e.target.files[0].name : '未选择文件';
+        });
+        
+        // 表单提交
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const progress = document.getElementById('progress');
+            const status = document.getElementById('status');
+            const error = document.getElementById('error');
+            const result = document.getElementById('result');
+            
+            // 重置UI
+            error.style.display = 'none';
+            result.style.display = 'none';
+            progress.style.display = 'block';
+            status.style.display = 'block';
+            status.textContent = '正在处理数据，请稍候...';
+            submitBtn.disabled = true;
+            
+            const formData = new FormData(this);
+            
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 显示结果
+                    status.style.display = 'none';
+                    progress.style.display = 'none';
+                    result.style.display = 'block';
+                    
+                    document.getElementById('resTime').textContent = data.summary['统计时间'];
+                    document.getElementById('resCollege').textContent = data.summary['匹配到的学院'];
+                    document.getElementById('resStudents').textContent = data.summary['总学生数'] + ' 人';
+                    document.getElementById('resTotalCost').textContent = 
+                        '¥' + data.summary['采购总费用'].toFixed(2);
+                    document.getElementById('resAvgCost').textContent = 
+                        '¥' + data.summary['人均费用'].toFixed(2);
+                    
+                    downloadUrl = data.download_url;
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (err) {
+                progress.style.display = 'none';
+                status.style.display = 'none';
+                error.style.display = 'block';
+                error.textContent = '❌ 错误：' + err.message;
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
+        
+        // 下载按钮
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+            if (downloadUrl) {
+                window.location.href = downloadUrl;
+            }
+        });
+    </script>
+</body>
+</html>
